@@ -10,14 +10,14 @@ import matplotlib.pyplot as plt
 
 NUM_TRAINING_EXAMPLES = 5000
 NUM_TEST_EXAMPLES = 1000
+NUM_NEIGHBOURS = 5
 DATA_PATH = "../assets/kickstarter-projects/ks-projects-201801.csv"
 RANDOM_SEED = 42
-NUM_KFOLDS = 5
+TRAIN_TEST_SPLIT = .5
 
 # save fitted-vectorizer
 COUNT_VECTOR = {}
-NB_ACCURACY = -1
-KNN_ACCURACY = -1
+
 
 
 # reads data from a file, specify how many random rows to read with num_samples
@@ -67,6 +67,7 @@ def preproccess_data(df):
     # remove columns that are not relevant to the use-case
     # the remaining columns are: name, category, main_category, currency, deadline, goal, launched, state, country
     filtered = df.drop(['id', 'pledged', 'backers', 'usd_pledged'], axis=1)
+    filtered = filtered.dropna()
 
     # convert string-type dates to numbers and normalize them
     filtered['launched'] = filtered['launched'].apply( convert_date_to_int )
@@ -96,7 +97,7 @@ def split_dataframe(df, rand_seed=RANDOM_SEED):
     # split data into attributes and labels, train and test sets
     y = np.array( df['state'] )
     X = np.array( df.drop(['state'], axis=1) )
-    X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.2, random_state=rand_seed)
+    X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=TRAIN_TEST_SPLIT, random_state=rand_seed)
 
     return X_train, X_test, y_train, y_test
 
@@ -112,7 +113,7 @@ def train_classifier(df, classifier_type):
 
     # train
     if classifier_type is 'KNN':
-        classifier = neighbors.KNeighborsClassifier(n_neighbors=5)
+        classifier = neighbors.KNeighborsClassifier(n_neighbors=NUM_NEIGHBOURS)
 
     elif classifier_type is "NB":
         classifier = naive_bayes.BernoulliNB()
@@ -122,7 +123,7 @@ def train_classifier(df, classifier_type):
 
         temp = cvctr.fit_transform( np.reshape(X_train, -1) )
         COUNT_VECTOR = cvctr #save the fitted vectorizer
-        
+
         X_train = tfid.fit_transform(temp)
         X_test = cvctr.transform( np.reshape(X_test, -1) )
 
@@ -208,20 +209,26 @@ def plot_barchart(knn_scores, nb_scores):
 
     return
 
+# return number of words in sentence
+def wordlen(sentence):
+    return len(sentence.split(' '))
 
 def __main__():
     # read data and preprocess it
     data = read_in_data('./assets/ks-projects-201801.csv', 379000, 7000)
     data_filtered = preproccess_data(data)    
 
-    # after this line, we are left with columns: deadline, launched, goal, and state
+    # after this line, we are left with columns: alotted_time, goal, and state
     knn_filtered = data_filtered.copy(deep=True)
     knn_filtered = knn_filtered.drop(['name', 'category', 'main_category', 'currency','country'], axis=1)
 
-    #nb_filtered has columns: category, main_category, name, currency, country, state
+    #nb_filtered has columns: name and state
     nb_filtered = data_filtered.copy(deep=True)
     nb_filtered = nb_filtered.drop(['alotted_time', 'goal', 'category', 'main_category', 'currency', 'country' ], axis=1)
     
+    arrlen = np.vectorize(wordlen)
+    print("\nMean Wordcount in Project Name: {}\n".format(np.mean(arrlen( data['name'] ))))
+
     # train / test
     knn_classifier, knn_accuracy = train_classifier(knn_filtered, "KNN")
     nb_classifier, bayes_accuracy = train_classifier(nb_filtered, "NB")
