@@ -9,6 +9,7 @@ from datetime import datetime
 NUM_TRAINING_EXAMPLES = 5000
 NUM_TEST_EXAMPLES = 1000
 DATA_PATH = "../assets/kickstarter-projects/ks-projects-201801.csv"
+RANDOM_SEED = 42
 
 
 # reads data from a file, specify how many random rows to read with num_samples
@@ -54,9 +55,10 @@ def normalize_array(ndarr):
 
 
 
-def preproccess_knn_data(df):
-    # after this line, we are left with columns: deadline, launched, goal, and state
-    filtered = df.drop(['id', 'name', 'category', 'main_category', 'currency', 'pledged', 'backers', 'country', 'usd_pledged' ], axis=1)
+def preproccess_data(df):
+    # remove columns that are not relevant to the use-case
+    # the remaining columns are: name, category, main_category, currency, deadline, goal, launched, state, country
+    filtered = df.drop(['id', 'pledged', 'backers', 'usd_pledged'], axis=1)
 
     # convert string-type dates to numbers and normalize them
     filtered['launched'] = filtered['launched'].apply( convert_date_to_int )
@@ -74,31 +76,34 @@ def preproccess_knn_data(df):
 
     filtered['state'] = (filtered['state'] == "successful" )
 
+
     num_pos = len( filtered[ (filtered['state'] == True)] )
     num_entries = len(filtered['state'])
     print("percentage successful projects..." , num_pos/num_entries)
 
     return filtered
 
-def preproccess_nb_data(df):
-    # drop unusable columns, leaving us with columns: category, main_category, name, currency, country
-    filtered = df.drop(['id', 'pledged', 'backers', 'usd_pledged', 'deadline', 'launched', 'goal', 'category', 'main_category', 'currency', 'country'], axis=1)
 
-    filtered['state'] = (filtered['state'] == "successful")
-    return filtered
+def split_dataframe(df, rand_seed=RANDOM_SEED):
+    # split data into attributes and labels, train and test sets
+    y = np.array( df['state'] )
+    X = np.array( df.drop(['state'], axis=1) )
+    X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.2, random_state=rand_seed)
+
+    return X_train, X_test, y_train, y_test
 
 
 
 # takes a dataframe of data relevant to KNN classification and returns a trained classifier
 def train_classifier(df, classifier_type):
-    # split data into attributes and labels, train and test sets
-    y = np.array( df['state'] )
-    X = np.array( df.drop(['state'], axis=1) )
-    X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.2, random_state=3)
-    
+    X_train, X_test, y_train, y_test = split_dataframe(df)
+
+
     # train
     if classifier_type is 'KNN':
+        print(X_train)
         classifier = neighbors.KNeighborsClassifier(n_neighbors=5)
+
     elif classifier_type is "NB":
         classifier = naive_bayes.BernoulliNB()
 
@@ -110,7 +115,6 @@ def train_classifier(df, classifier_type):
 
         X_test = cvctr.transform( np.reshape(X_test, -1) )
 
-
     classifier.fit(X_train, y_train)
 
     # test
@@ -120,22 +124,49 @@ def train_classifier(df, classifier_type):
 
 
 
+def ensemble_classify(knn_classifier, nb_classifier, knn_df, nb_df):
+    knn_X_train, knn_X_test, knn_y_train, knn_y_test = split_dataframe(knn_df)
+    nb_X_train,  nb_X_test,  nb_y_train,  nb_y_test  = split_dataframe(nb_df)
+
+    knn_results = knn_classifier.predict(knn_X_test)
+
+    # prepare naive bayes input data
+    cvctr = sktext.CountVectorizer()
+    temp = cvctr.fit_transform( np.reshape(nb_X_train, -1) ) # this step must be done to give CountVectorizer the same vocabulary as in previous tests
+    nb_X_test = cvctr.transform( np.reshape(nb_X_test, -1) )
+
+    nb_results = nb_classifier.predict(nb_X_test)
+
+    print("knn_results", knn_results)
+    print("nb_results", nb_results)
+
+    return 1
+
+
 
 def __main__():
     # read data and preprocess it
     data = read_in_data('./assets/ks-projects-201801.csv', 379000, 7000)
-    knn_filtered = preproccess_knn_data(data)
-    nb_filtered = preproccess_nb_data(data)
+    data_filtered = preproccess_data(data)    
+
+    # after this line, we are left with columns: deadline, launched, goal, and state
+    knn_filtered = data_filtered.copy(deep=True)
+    knn_filtered = knn_filtered.drop(['name', 'category', 'main_category', 'currency','country'], axis=1)
+
+    #nb_filtered has columns: category, main_category, name, currency, country, state
+    nb_filtered = data_filtered.copy(deep=True)
+    nb_filtered = nb_filtered.drop(['alotted_time', 'goal', 'category', 'main_category', 'currency', 'country' ], axis=1)
     
     # train / test
     knn_classifier, knn_accuracy = train_classifier(knn_filtered, "KNN")
-    bayes_classifier, bayes_accuracy = train_classifier(nb_filtered, "NB")
+    nb_classifier, bayes_accuracy = train_classifier(nb_filtered, "NB")
 
-
-
+    # test ensemble classification
+    ensemble_accuracy = ensemble_classify(knn_classifier, nb_classifier, knn_filtered, nb_filtered)
 
     print("KNN accuracy", knn_accuracy)
     print("Bayes accuracy", bayes_accuracy)
+    print("Ensemble Accuracy", ensemble_accuracy)
     return
 
 __main__()
